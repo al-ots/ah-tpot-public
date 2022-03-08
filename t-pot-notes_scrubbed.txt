@@ -1,0 +1,89 @@
+# tpot notes
+
+https://github.com/telekom-security/tpotce
+https://github.com/telekom-security/tpotce#requirements
+https://github.com/telekom-security/tpotce/releases
+
+# Recommended requirements
+2vcpu
+8GB Ram
+256GB
+
+# Use firewall to block admin ports >64000
+# forward all TCP / UDP traffic in the port range of 1-64000 to T-Pot while allowing access to ports > 64000 only from trusted IPs.
+
+# Networking
+192.168.18.44/31, 192.168.18.45 # <-- will fail, exit to shell and run the following
+
+ip addr
+ip addr del 192.168.18.44/31 dev ens192
+ip addr add 192.168.18.44/31 dev ens192
+ip route add default via 192.168.18.45 dev ens192
+
+# Usernames creds in BW:
+tsec - console user
+tpot - Web user
+
+# updating tpotce - logon to console as tsec
+sudo su -
+cd /opt/tpot
+./update.sh -y
+
+# Eldon's magic for fixing ssh and enabling pcap dumps for traffic
+# ssh service was broken, look at sshd config, move the line with port above the other config
+### like so
+...
+# Example of overriding settings on a per-user basis
+#Match User anoncvs
+#	X11Forwarding no
+#	AllowTcpForwarding no
+#	PermitTTY no
+#	ForceCommand cvs server
+
+Port 64295
+
+Match Group tpotlogs
+        PermitOpen 127.0.0.1:64305
+        ForceCommand /usr/bin/false
+###
+
+apt install pcaputils tcpdump
+
+[root@steepcupcake:/etc/pcapdump]# crontab -l | tail -n 1
+* * * * * /usr/bin/find /var/log/pcapdump/ -type f -name '*.pcap' -mtime +1 -delete
+
+[root@steepcupcake:/etc/pcapdump]# cat /etc/default/pcapdump
+ENABLED=1
+INSTANCES="ens192"
+
+[root@steepcupcake:/etc/pcapdump]# cat /etc/pcapdump/ens192
+device=ens192
+bpf="!(tcp port 64294 or tcp port 64295 or tcp port 64297)"
+interval=600
+snaplen=1518
+promisc=0
+filefmt=/var/log/pcapdump/honeypot_%Y%m%d-%H%M.pcap
+mode=0644
+owner=root
+group=root
+
+## make the elasticsearch accessible outside the host
+## edit the file /opt/tpot/etc/tpot.yml, change the 127.0.0.1 with port 64298 to be 0.0.0.0
+## useful commands
+service tpot status # for finding the yml files
+docker container ls | grep 64298
+docker container inspect f32bd71bd70b # <-- container id
+docker network inspect etc_default
+cd /var/lib/docker/containers/ # physical location of containers
+
+## now can query from admin vpn
+curl -XGET "http://192.168.18.44:64298/logstash-*/_search?pretty=true" -H 'Content-Type: application/json' -d'
+{
+  "query": {...}
+}
+
+## incident response for on-campus alerts
+# if VPN IP address, visit PAs to see who's using the IP address
+# visit Kibana:
+  * Discover --> index = syslog-net-* --> filter on username: anumber --> search for "assigned to session"
+  * can also look in radius-* --> filter for anumber --> look for "calling-station-id" (src ip) and "framed-ip-address" (vpn ip)

@@ -1,0 +1,127 @@
+#! /bin/bash
+# This script will find on-campus IP's touching the honeypots and send a slack alert
+curl -s -XGET "http://192.168.18.44:64298/logstash-*/_search?pretty=true" -H 'Content-Type: application/json' -d'
+{
+  "aggs": {
+    "2": {
+      "terms": {
+        "field": "src_ip.keyword",
+        "order": {
+          "_count": "desc"
+        },
+        "size": 10
+      }
+    }
+  },
+  "size": 0,
+  "fields": [
+    {
+      "field": "@timestamp",
+      "format": "date_time"
+    },
+    {
+      "field": "end_time",
+      "format": "date_time"
+    },
+    {
+      "field": "flow.start",
+      "format": "date_time"
+    },
+    {
+      "field": "start_time",
+      "format": "date_time"
+    },
+    {
+      "field": "timestamp",
+      "format": "date_time"
+    },
+    {
+      "field": "tls.notafter",
+      "format": "date_time"
+    },
+    {
+      "field": "tls.notbefore",
+      "format": "date_time"
+    }
+  ],
+  "script_fields": {},
+  "stored_fields": [
+    "*"
+  ],
+  "runtime_mappings": {},
+  "_source": {
+    "excludes": []
+  },
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "query_string": {
+            "query": "type:\"Adbhoney\" OR type:\"Ciscoasa\" OR type:\"CitrixHoneypot\" OR type:\"ConPot\" OR type:\"Cowrie\" OR type:\"Dicompot\" OR type:\"Dionaea\" OR type:\"ElasticPot\" OR type:\"Glutton\" OR type:\"Heralding\" OR type:\"Honeypy\" OR type:\"Honeysap\" OR type:\"Honeytrap\" OR type:\"Ipphoney\" OR type:\"Mailoney\" OR type:\"Medpot\" OR type:\"Rdpy\" OR type:\"Tanner\"",
+            "analyze_wildcard": true,
+            "time_zone": "America/Denver"
+          }
+        }
+      ],
+      "filter": [
+        {
+          "bool": {
+            "should": [
+              {
+                "bool": {
+                  "should": [
+                    {
+                      "query_string": {
+                        "fields": [
+                          "src_ip.keyword"
+                        ],
+                        "query": "\\1\\2\\9\\.\\1\\2\\3\\.*"
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              },
+              {
+                "bool": {
+                  "should": [
+                    {
+                      "query_string": {
+                        "fields": [
+                          "src_ip.keyword"
+                        ],
+                        "query": "\\1\\4\\4\\.\\3\\9\\.*"
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            ],
+            "minimum_should_match": 1
+          }
+        },
+        {
+          "range": {
+            "@timestamp": {
+              "from": "now-5m",
+              "to": null,
+              "include_lower": true,
+              "include_upper": true,
+              "boost": 1
+            }
+          }
+        }
+      ],
+      "should": [],
+      "must_not": []
+    }
+  }
+}'> usu.json
+x="$(grep 'key' ./usu.json| sed -e 's/^.*"key" : "//' -e 's/",//' | sort -n -t . -k 1,1 -k 2,2 -k 3,3 -k 4,4)"
+rm usu.json
+
+if ! [[ -z "$x" ]]
+then
+  curl -X POST --data-urlencode "payload={\"channel\": \"it-sec-alerts\", \"username\": \"*** T-Pot Alert ***\", \"text\": \"On-campus machine(s) touching honeypots:\n$x\", \"icon_emoji\": \":teapot:\"}" https://hooks.slack.com/services/yourhookid/apikeystuff
+fi
